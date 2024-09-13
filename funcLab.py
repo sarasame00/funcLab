@@ -14,9 +14,9 @@ gc = gspread.authorize(creds)  # Authorize the gspread client with credentials
 # Initialize pretty printing for symbolic outputs
 sym.init_printing()
 
-def importData(fileName, sheetName, numCol, firstRow=1, lastRow=None):
+def importCol(fileName, sheetName, numCol, firstRow=1, lastRow=None):
     """
-    Import data from a specified Google Sheet.
+    Import data from specified columns in a Google Sheet.
 
     Parameters:
     -----------
@@ -63,6 +63,56 @@ def importData(fileName, sheetName, numCol, firstRow=1, lastRow=None):
             return
 
     return dataColMod[0] if len(dataColMod) == 1 else dataColMod  # Return single list or list of lists
+
+def importRow(fileName, sheetName, numRow, firstCol=1, lastCol=None):
+    """
+    Import data from specified rows in a Google Sheet.
+
+    Parameters:
+    -----------
+    fileName : str
+        The name of the Google Sheet file.
+    sheetName : str
+        The name of the worksheet within the Google Sheet.
+    numRow : int or list of int
+        The row number(s) to import (1-based indexing).
+    firstCol : int, optional
+        The number of the first column to import (default is 1).
+    lastCol : int, optional
+        The number of the last column to import (default is None, meaning all columns).
+
+    Returns:
+    --------
+    list or list of lists
+        A list of data from the specified rows. If multiple rows are specified, a list of lists is returned.
+    """
+    # Check if Google Sheets API client is initialized
+    if 'gc' not in globals():
+        print("Google Sheets API client is not initialized. Run authentication code.")
+        return
+
+    try:
+        ss = gc.open(fileName)  # Open the Google Sheet by name
+        ws = ss.worksheet(sheetName)  # Access the specified worksheet
+    except Exception as e:
+        print(f"Error opening file or sheet: {e}")
+        return
+
+    if isinstance(numRow, int):
+        numRow = [numRow]  # Ensure numRow is a list for uniform processing
+
+    dataRowMod = []  # List to store cleaned data for all rows
+
+    for nr in numRow:
+        try:
+            dataRow = ws.row_values(nr)  # Retrieve all values from the specified row
+            dataRow = dataRow[firstCol-1:lastCol] if lastCol else dataRow[firstCol-1:]  # Slice data according to firstCol and lastCol
+            dataRowMod.append([safe_eval(d) for d in dataRow])  # Convert data to numerical format
+        except Exception as e:
+            print(f"Error processing row {nr}: {e}")
+            return
+
+    return dataRowMod[0] if len(dataRowMod) == 1 else dataRowMod  # Return single list or list of lists
 
 def safe_eval(value):
     """
