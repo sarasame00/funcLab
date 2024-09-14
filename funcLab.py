@@ -1,237 +1,224 @@
-import numpy as np  # Import NumPy for numerical operations
-import gspread  # Import gspread for Google Sheets API access
-from google.auth import default  # Import default for Google authentication
-import matplotlib.pyplot as plt  # Import matplotlib for plotting
-import sympy as sym  # Import SymPy for symbolic mathematics
-from scipy.optimize import curve_fit  # Import curve_fit for curve fitting
+import numpy as np  # Import NumPy for handling numerical operations
+import gspread  # Import gspread to access Google Sheets through the API
+from google.auth import default  # Import default for Google authentication handling
+import matplotlib.pyplot as plt  # Import matplotlib for creating plots
+import sympy as sym  # Import SymPy for symbolic mathematical calculations
+from scipy.optimize import curve_fit  # Import curve_fit for fitting curves to data
 
-# Authenticate and authorize Google Sheets API client
+# Authenticate the user and set up access to Google Sheets API
 from google.colab import auth
-auth.authenticate_user()  # Authenticate the user for Google Colab environment
-creds, _ = default()  # Get default authentication credentials
-gc = gspread.authorize(creds)  # Authorize the gspread client with credentials
+auth.authenticate_user()  # Authenticate the user in the Google Colab environment
+creds, _ = default()  # Retrieve the default credentials for authentication
+gc = gspread.authorize(creds)  # Authorize the gspread client with the obtained credentials
 
-# Initialize pretty printing for symbolic outputs
+# Set up symbolic mathematics pretty printing
 sym.init_printing()
 
-def importCol(fileName, sheetName, numCol, firstRow=1, lastRow=None):
+
+def importData(fileName, sheetName, cellRange, orientation='columns', data_type='numeric'):
     """
-    Import data from specified columns in a Google Sheet.
+    Import data from a specified range in a Google Sheet using Excel-style range notation.
 
     Parameters:
     -----------
     fileName : str
         The name of the Google Sheet file.
     sheetName : str
-        The name of the worksheet within the Google Sheet.
-    numCol : int or list of int
-        The column number(s) to import (1-based indexing).
-    firstRow : int, optional
-        The number of the first row to import (default is 1).
-    lastRow : int, optional
-        The number of the last row to import (default is None, meaning all rows).
+        The specific worksheet within the Google Sheet.
+    cellRange : str
+        The range of cells to import, denoted in Excel-style notation (e.g., 'A1:A10', 'B2:F7', 'A1').
+    orientation : str, optional
+        Use 'columns' to import data as columns (default) or 'rows' to import data as rows.
+    data_type : str, optional
+        Use 'numeric' (default) to convert values to floats, 'string' to retain values as strings, or 'raw' for no conversion.
 
     Returns:
     --------
-    list or list of lists
-        A list of data from the specified columns. If multiple columns are specified, a list of lists is returned.
+    list, list of lists, or single value
+        Returns a list of data for each row/column within the specified range.
+        Returns a flat list if the range is a single row or column.
+        Returns a single value if the range is a single cell.
     """
-    # Check if Google Sheets API client is initialized
+    # Verify if the Google Sheets API client is set up
     if 'gc' not in globals():
-        print("Google Sheets API client is not initialized. Run authentication code.")
+        print("Google Sheets API client is not set up. Please run the authentication code.")
         return
 
     try:
-        ss = gc.open(fileName)  # Open the Google Sheet by name
-        ws = ss.worksheet(sheetName)  # Access the specified worksheet
+        # Access the Google Sheet and retrieve data
+        ss = gc.open(fileName)
+        ws = ss.worksheet(sheetName)
+        data = ws.get(cellRange)
     except Exception as e:
-        print(f"Error opening file or sheet: {e}")
-        return
+        print(f"Error retrieving range {cellRange}: {e}")
+        return None
 
-    if isinstance(numCol, int):
-        numCol = [numCol]  # Ensure numCol is a list for uniform processing
+    # Function to convert data based on the specified type
+    def convert_data(cell):
+        if data_type == 'numeric':
+            return safe_eval(cell)
+        elif data_type == 'string':
+            return str(cell)
+        else:
+            return cell  # Return the raw value if 'raw' is specified
 
-    dataColMod = []  # List to store cleaned data for all columns
+    # Handle the case for a single cell
+    if len(data) == 1 and len(data[0]) == 1:
+        data_value = data[0][0]
+        return convert_data(data_value)
 
-    for nc in numCol:
-        try:
-            dataCol = ws.col_values(nc)  # Retrieve all values from the specified column
-            dataCol = dataCol[firstRow-1:lastRow] if lastRow else dataCol[firstRow-1:]  # Slice data according to firstRow and lastRow
-            dataColMod.append([safe_eval(d) for d in dataCol])  # Convert data to numerical format
-        except Exception as e:
-            print(f"Error processing column {nc}: {e}")
-            return
+    # Handle the case for a single row
+    if len(data) == 1:
+        return [convert_data(cell) for cell in data[0]]  # Return the single row as a flat list with conversion
 
-    return dataColMod[0] if len(dataColMod) == 1 else dataColMod  # Return single list or list of lists
+    # Handle the case for a single column
+    if all(len(row) == 1 for row in data):
+        return [convert_data(row[0]) for row in data]  # Return the single column as a flat list with conversion
 
-def importRow(fileName, sheetName, numRow, firstCol=1, lastCol=None):
-    """
-    Import data from specified rows in a Google Sheet.
+    # Transpose data if importing columns and orientation is 'columns'
+    if orientation == 'columns':
+        data = np.transpose(data)
 
-    Parameters:
-    -----------
-    fileName : str
-        The name of the Google Sheet file.
-    sheetName : str
-        The name of the worksheet within the Google Sheet.
-    numRow : int or list of int
-        The row number(s) to import (1-based indexing).
-    firstCol : int, optional
-        The number of the first column to import (default is 1).
-    lastCol : int, optional
-        The number of the last column to import (default is None, meaning all columns).
+    # Convert data to numeric or keep as strings for multi-row/multi-column scenarios
+    if data_type == 'numeric':
+        data = [[safe_eval(cell) for cell in row] for row in data]
+    elif data_type == 'string':
+        data = [[str(cell) for cell in row] for row in data]
 
-    Returns:
-    --------
-    list or list of lists
-        A list of data from the specified rows. If multiple rows are specified, a list of lists is returned.
-    """
-    # Check if Google Sheets API client is initialized
-    if 'gc' not in globals():
-        print("Google Sheets API client is not initialized. Run authentication code.")
-        return
+    return data
 
-    try:
-        ss = gc.open(fileName)  # Open the Google Sheet by name
-        ws = ss.worksheet(sheetName)  # Access the specified worksheet
-    except Exception as e:
-        print(f"Error opening file or sheet: {e}")
-        return
-
-    if isinstance(numRow, int):
-        numRow = [numRow]  # Ensure numRow is a list for uniform processing
-
-    dataRowMod = []  # List to store cleaned data for all rows
-
-    for nr in numRow:
-        try:
-            dataRow = ws.row_values(nr)  # Retrieve all values from the specified row
-            dataRow = dataRow[firstCol-1:lastCol] if lastCol else dataRow[firstCol-1:]  # Slice data according to firstCol and lastCol
-            dataRowMod.append([safe_eval(d) for d in dataRow])  # Convert data to numerical format
-        except Exception as e:
-            print(f"Error processing row {nr}: {e}")
-            return
-
-    return dataRowMod[0] if len(dataRowMod) == 1 else dataRowMod  # Return single list or list of lists
 
 def safe_eval(value):
     """
-    Safely convert a string to a float, handling non-numeric values.
+    Convert a string to a float, handling cases where the string is not a numeric value.
 
     Parameters:
     -----------
     value : str
-        The string to convert.
+        The string to be converted.
 
     Returns:
     --------
     float
-        The converted float value, or NaN if conversion fails.
+        The converted float value, or NaN if conversion is not possible.
     """
     try:
-        return float(value.replace(',', '.'))  # Replace commas with dots for decimal conversion
+        return float(value.replace(',', '.'))  # Replace commas with dots to standardize decimal notation
     except ValueError:
-        return float('nan')  # Handle non-numeric data as NaN
+        return float('nan')  # Return NaN for non-numeric values
 
 def curveFit(func, x, y):
     """
-    Fit a curve to the data using the specified function and calculate fit statistics.
+    Fit a curve to the provided data using the given function and calculate the fitting statistics.
 
     Parameters:
     -----------
     func : callable
-        The function to fit the data to. It should accept x values and parameters, and return y values.
+        The function to use for fitting the data. It should take x values and parameters, returning y values.
     x : array-like
-        The independent variable data.
+        Data for the independent variable.
     y : array-like
-        The dependent variable data.
+        Data for the dependent variable.
 
     Returns:
     --------
     dict
-        A dictionary containing:
-        - 'parameters': Optimized parameters
-        - 'parameter_uncertainties': Parameter uncertainties
-        - 'r_squared': R-squared value
+        A dictionary with:
+        - 'parameters': Optimized parameters of the fit
+        - 'parameter_uncertainties': Uncertainties of the parameters
+        - 'r_squared': R-squared statistic of the fit
     """
     X = np.asarray(x)  # Convert input data to numpy arrays
     Y = np.asarray(y)
 
     try:
-        popt, pcov = curve_fit(func, X, Y)  # Fit the curve
+        # Perform the curve fitting
+        popt, pcov = curve_fit(func, X, Y)
     except Exception as e:
         print(f"Error during curve fitting: {e}")
         return {}
 
-    perr = np.sqrt(np.diag(pcov))  # Compute standard uncertainties of the parameters
-    residuals = Y - func(X, *popt)  # Calculate residuals
-    ss_res = np.sum(residuals**2)  # Sum of squared residuals
-    ss_tot = np.sum((Y - np.mean(Y))**2)  # Total sum of squares
-    r_squared = 1 - (ss_res / ss_tot)  # R-squared value
+    # Compute the uncertainties of the parameters
+    perr = np.sqrt(np.diag(pcov))
 
-    results = {
+    # Calculate fitted values
+    fit_y = func(X, *popt)
+    
+    # Determine the residuals
+    residuals = Y - fit_y
+    
+    # Calculate the sum of squared residuals
+    ss_res = np.sum(residuals**2)
+    
+    # Calculate the total sum of squares
+    ss_tot = np.sum((Y - np.mean(Y))**2)
+    
+    # Compute the R-squared statistic
+    r_squared = 1 - (ss_res / ss_tot)
+    
+    # Display the fitting results
+    print("Fitting results:")
+    for i in range(len(popt)):
+        print(f'Parameter a_{i} = {popt[i]} ± {perr[i]}')
+    print(f'R² = {r_squared:.4f}')
+
+    # Return the fitting results
+    return {
         'parameters': popt,
         'parameter_uncertainties': perr,
         'r_squared': r_squared
     }
 
-    # Print fitting results
-    print("Fitting results:")
-    for i, param in enumerate(popt):
-        print(f'Parameter a_{i} = {param:.4f} ± {perr[i]:.4f}')
-    print(f'R² = {r_squared:.4f}')
-
-    return results
 
 class Variable:
-    def __init__(self, sym, val, inc):
+    def __init__(self, sim, val, inc):
         """
-        Initialize a variable with a symbolic representation, value, and uncertainty.
+        Create a variable with symbolic representation, value, and uncertainty.
 
         Parameters:
         -----------
         sym : str
-            The name of the symbolic variable.
+            The symbolic name of the variable.
         val : float
             The value of the variable.
         inc : float
-            The uncertainty of the variable.
+            The uncertainty associated with the variable.
         """
-        self.sym = sym.Symbol(sym)  # Initialize symbolic variable
-        self.val = val  # Value of the variable
-        self.inc = inc  # Uncertainty of the variable
+        self.sim = sym.Symbol(sim)  # Create a symbolic variable
+        self.val = val  # The variable's value
+        self.inc = inc  # The variable's uncertainty
 
 def regression(x, y, table=False):
     """
-    Perform linear regression on the data and return or print the results.
+    Conduct linear regression on the data and present the results.
 
     Parameters:
     -----------
     x : array-like
-        The independent variable data.
+        Data for the independent variable.
     y : array-like
-        The dependent variable data.
+        Data for the dependent variable.
     table : bool, optional
-        If True, print the regression results in LaTeX table format.
-        If False, print the results in plain text.
+        If True, display the regression results in LaTeX table format.
+        If False, display the results in plain text.
 
     Returns:
     --------
     dict
-        A dictionary containing:
-        - 'slope': Slope of the regression line (as a Variable object)
-        - 'intercept': Intercept of the regression line (as a Variable object)
-        - 'r_squared': R-squared value
+        A dictionary with:
+        - 'slope': Slope of the regression line (represented as a Variable object)
+        - 'intercept': Intercept of the regression line (represented as a Variable object)
+        - 'r_squared': R-squared statistic
     """
     def func(x, A, B):
         return A * x + B  # Linear function for fitting
 
-    curve = curveFit(func, x, y)  # Fit the curve using the linear function
+    curve = curveFit(func, x, y)  # Fit the curve using a linear function
     
-    # Create Variable objects for the slope and intercept
+    # Create Variable objects for slope and intercept
     A = Variable('A', curve['parameters'][0], curve['parameter_uncertainties'][0])
     B = Variable('B', curve['parameters'][1], curve['parameter_uncertainties'][1])
-    R2 = curve['r_squared']  # R-squared value
+    R2 = curve['r_squared']  # R-squared statistic
 
     results = {
         'slope': A,
@@ -240,29 +227,29 @@ def regression(x, y, table=False):
     }
 
     if table:
-        # Print results in LaTeX table format
+        # Display results in LaTeX table format
         print('\\begin{tabular}{ccc}')
         print('$A$ & $B$ & $r^2$ \\\\ \hline')
         print(f'${A.val:.4f} \pm {A.inc:.4f}$ & ${B.val:.4f} \pm {B.inc:.4f}$ & {R2:.4f} \\\\ \hline')
         print('\\end{tabular}')
     else:
-        # Print regression coefficients and R-squared value
+        # Display regression coefficients and R-squared value
         print(f'A = {A.val:.4f} ± {A.inc:.4f}')
         print(f'B = {B.val:.4f} ± {B.inc:.4f}')
         print(f'R² = {R2:.4f}')
 
     return results
 
-def propIncertesa(fun, variables):
+def propUncertainty(fun, variables):
     """
     Propagate uncertainties through a symbolic function using partial derivatives.
 
     Parameters:
     -----------
     fun : sympy expression
-        The symbolic function through which uncertainties are propagated.
+        The symbolic function for uncertainty propagation.
     variables : list of Variable or Variable
-        A list of Variable objects (or a single Variable) representing variables with their uncertainties.
+        A list (or single instance) of Variable objects representing the variables with their uncertainties.
 
     Returns:
     --------
@@ -271,43 +258,41 @@ def propIncertesa(fun, variables):
         - List of evaluated function values.
         - List of uncertainties associated with the function values.
     """
-    # Ensure variables is a list
+    # Ensure that 'variables' is a list
     if not isinstance(variables, list):
         variables = [variables]
 
-    errfun = 0  # Initialize symbolic expression for propagated uncertainty
+    # Initialize symbolic expression for uncertainty propagation
+    errfun = 0
     for var in variables:
-        sigma_s = sym.Symbol('sigma_' + var.sym.name)  # Symbol for the uncertainty of the variable
-        derivative = sym.diff(fun, var.sym)  # Compute the partial derivative of the function with respect to the variable
-        errfun += (derivative * sigma_s) ** 2  # Add the squared term to the total uncertainty expression
+        sigma_s = sym.Symbol('sigma_' + var.sim.name)  # Symbol for the uncertainty of the variable
+        derivative = sym.diff(fun, var.sim)  # Compute the partial derivative of the function with respect to the variable
+        errfun += (derivative * sigma_s) ** 2  # Sum the squared term to the total uncertainty expression
 
     errfun = sym.sqrt(errfun)  # Take the square root to get the combined uncertainty expression
 
-    # Print the symbolic uncertainty expression in LaTeX format
+    # Display the symbolic uncertainty expression in LaTeX format
     print("Symbolic uncertainty expression:")
     print(sym.latex(errfun))
 
-    def substitute_values_and_uncertainties():
+    def substitute_values_and_uncertainties(val, inc):
         """
         Substitute values and uncertainties into the symbolic expressions and evaluate them.
 
         Returns:
         --------
         tuple
-            Evaluated function value and uncertainty.
+            The evaluated function value and its associated uncertainty.
         """
         evaluated_fun = fun
         evaluated_errfun = errfun
 
         for var in variables:
-            if isinstance(var.val, (float, int, sym.core.numbers.Float)):
-                # Substitute the variable value into the function and uncertainty expressions
-                evaluated_fun = evaluated_fun.subs(var.sym, var.val)
-                evaluated_errfun = evaluated_errfun.subs(var.sym, var.val)
+            evaluated_fun = evaluated_fun.subs(var.sim, val)
+            evaluated_errfun = evaluated_errfun.subs(var.sim, val)
             
-            if isinstance(var.inc, (float, int, sym.core.numbers.Float)):
-                # Substitute the uncertainty into the uncertainty expression
-                evaluated_errfun = evaluated_errfun.subs(sym.Symbol('sigma_' + var.sym.name), var.inc)
+            # Substitute the uncertainty into the uncertainty expression
+            evaluated_errfun = evaluated_errfun.subs(sym.Symbol('sigma_' + var.sim.name), inc)
 
         return evaluated_fun, evaluated_errfun
 
@@ -315,91 +300,101 @@ def propIncertesa(fun, variables):
     incerteses = []
 
     for var in variables:
+        # Ensure the lengths of values and uncertainties match
         if isinstance(var.val, (list, np.ndarray)):
-            # If the variable value is a list or array, compute the function value and uncertainty for each entry
-            for value in var.val:
-                evaluated_fun, evaluated_errfun = substitute_values_and_uncertainties()
-                valors.append(evaluated_fun.subs(var.sym, value).evalf())  # Evaluate function value
-                incerteses.append(evaluated_errfun.subs(var.sym, value).evalf())  # Evaluate uncertainty
+            if isinstance(var.inc, (list, np.ndarray)):
+                if len(var.val) != len(var.inc):
+                    raise ValueError("Values and uncertainties lists/arrays must have the same length.")
+                
+                for value, uncertainty in zip(var.val, var.inc):
+                    evaluated_fun, evaluated_errfun = substitute_values_and_uncertainties(value, uncertainty)
+                    valors.append(evaluated_fun.evalf())  # Evaluate the function value
+                    incerteses.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
+            else:
+                for value in var.val:
+                    evaluated_fun, evaluated_errfun = substitute_values_and_uncertainties(value, var.inc)
+                    valors.append(evaluated_fun.evalf())  # Evaluate the function value
+                    incerteses.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
         else:
             if isinstance(var.inc, (list, np.ndarray)):
-                # If the uncertainty is a list or array, compute the uncertainty for each entry
                 for uncertainty in var.inc:
-                    evaluated_errfun = errfun.subs(sym.Symbol('sigma_' + var.sym.name), uncertainty)
-                    incerteses.append(evaluated_errfun.evalf())  # Evaluate uncertainty
+                    evaluated_errfun = errfun.subs(sym.Symbol('sigma_' + var.sim.name), uncertainty)
+                    incerteses.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
             else:
-                evaluated_fun, evaluated_errfun = substitute_values_and_uncertainties()
-                valors.append(evaluated_fun.evalf())  # Evaluate function value
-                incerteses.append(evaluated_errfun.evalf())  # Evaluate uncertainty
+                evaluated_fun, evaluated_errfun = substitute_values_and_uncertainties(var.val, var.inc)
+                valors.append(evaluated_fun.evalf())  # Evaluate the function value
+                incerteses.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
 
     return valors, incerteses
 
-def mean_and_uncertainty(values, instrumental_error):
+
+def mean(values, instrumental_error):
     """
-    Calculate the mean and combined uncertainty of a set of values.
+    Compute the mean and combined uncertainty of a set of measurements.
 
     Parameters:
     -----------
     values : list of float
-        The list of measured values.
+        The set of measured values.
     instrumental_error : float
-        The instrumental error, which is the uncertainty associated with the measurement process.
+        The uncertainty associated with the measurement process.
 
     Returns:
     --------
     tuple
-        A tuple containing:
+        A tuple with:
         - Mean of the values.
         - Combined uncertainty (statistical error combined with instrumental error).
     """
     if len(values) == 0:
-        raise ValueError("The input list of values is empty. Cannot calculate mean and uncertainty.")
+        raise ValueError("The list of values is empty. Mean and uncertainty cannot be calculated.")
     
     if instrumental_error < 0:
         raise ValueError("Instrumental error must be non-negative.")
     
-    values = np.array(values)  # Convert values to a NumPy array for numerical operations
-    mean = np.mean(values)  # Calculate the mean of the values
-    std_dev = np.std(values, ddof=1)  # Compute the standard deviation (sample standard deviation)
-    statistical_error = std_dev / np.sqrt(len(values))  # Calculate the statistical error
+    values = np.array(values)  # Convert the list of values to a NumPy array
+    mean = np.mean(values)  # Compute the mean of the values
+    std_dev = np.std(values, ddof=1)  # Calculate the standard deviation (sample standard deviation)
+    statistical_error = std_dev / np.sqrt(len(values))  # Compute the statistical error
     combined_uncertainty = np.sqrt(statistical_error**2 + instrumental_error**2)  # Combine statistical and instrumental uncertainties
     
-    # Print the mean and combined uncertainty
+    # Display the mean and combined uncertainty
     print(f"Mean: ${mean:.2f} \pm {combined_uncertainty:.2f}$")
     
     return mean, combined_uncertainty
 
-def plotDades(ax, x, y, label=None, color='b', marker='o', markersize=3):
+
+def plotData(ax, x, y, label=None, color='k', marker='o', markersize=3):
     """
-    Plot data with error bars on the given axis.
+    Plot data with error bars on the specified axis.
 
     Parameters:
     -----------
     ax : matplotlib.axes.Axes
-        The Matplotlib axis object to plot on.
+        The axis object from Matplotlib where the data will be plotted.
     x : Variable
-        The independent variable data, including uncertainties.
+        Data for the independent variable, including uncertainties.
     y : Variable
-        The dependent variable data, including uncertainties.
+        Data for the dependent variable, including uncertainties.
     label : str, optional
         Label for the data series (default is None).
     color : str, optional
-        Color of the data points and error bars (default is 'b' for blue).
+        Color for the data points and error bars (default is 'k' for black).
     marker : str, optional
-        Marker style for the data points (default is 'o' for circles).
+        Style of the markers (default is 'o' for circles).
     markersize : int, optional
         Size of the markers (default is 3).
 
     Raises:
     -------
     TypeError
-        If either x or y is not an instance of the Variable class.
+        If x or y are not instances of the Variable class.
     """
     if not isinstance(x, Variable) or not isinstance(y, Variable):
-        raise TypeError("Both x and y must be instances of the Variable class.")
+        raise TypeError("x and y must be instances of the Variable class.")
     
-    ax.tick_params(direction='in', right=True, top=True)  # Customize tick parameters
-    ax.grid(color='#eeeeee', linestyle='--')  # Add grid with specified style
+    ax.tick_params(direction='in', right=True, top=True)  # Adjust tick parameters
+    ax.grid(color='#eeeeee', linestyle='--')  # Add grid with specified color and style
 
     error_params = {
         'xerr': x.inc,  # Error bars for x data
@@ -407,18 +402,73 @@ def plotDades(ax, x, y, label=None, color='b', marker='o', markersize=3):
         'capsize': 0,  # No cap size for error bars
         'elinewidth': 0.5,  # Line width for error bars
         'linewidth': 0,  # No line width for data points
-        'marker': marker,  # Marker style for data points
-        'markersize': markersize,  # Size of markers
+        'marker': marker,  # Marker style
+        'markersize': markersize,  # Size of the markers
         'markerfacecolor': color,  # Fill color of markers
         'markeredgecolor': color,  # Edge color of markers
-        'ecolor': color  # Color of error bars
+        'ecolor': color  # Color of the error bars
     }
     
     if label:
-        error_params['label'] = label  # Add label to legend if provided
+        error_params['label'] = label  # Add label to the legend if provided
 
     ax.errorbar(x.val, y.val, **error_params)  # Plot data with error bars
     
     if label:
-        ax.legend()  # Show legend if a label was provided
+        ax.legend()  # Display legend if a label was provided
 
+
+def plotFit(ax, x, y, fit_func, label='Curve Fit', color='k', xrange=None):
+    """
+    Plot data with error bars on the given axis and optionally fit a curve to the data.
+
+    Parameters:
+    -----------
+    ax : matplotlib.axes.Axes
+        The axis object from Matplotlib where the data and fit will be plotted.
+    x : Variable
+        Data for the independent variable, including uncertainties.
+    y : Variable
+        Data for the dependent variable, including uncertainties.
+    fit_func : callable, optional
+        The function to fit to the data (default is None). Should take x values and parameters and return y values.
+    label : str, optional
+        Label for the fit curve (default is 'Curve Fit').
+    color : str, optional
+        Color for the data points and fit curve (default is 'k' for black).
+    xrange : tuple, optional
+        The range for the x-axis over which to plot the fit (default is None).
+
+    Raises:
+    -------
+    TypeError
+        If x or y are not instances of the Variable class.
+    """
+    if not isinstance(x, Variable) or not isinstance(y, Variable):
+        raise TypeError("x and y must be instances of the Variable class.")
+    
+    ax.tick_params(direction='in', right=True, top=True)  # Adjust tick parameters
+    ax.grid(color='#eeeeee', linestyle='--')  # Add grid with specified color and style
+
+    # Convert Variable instances to numpy arrays for curve fitting
+    X = np.asarray(x.val)
+    Y = np.asarray(y.val)
+        
+    # Perform curve fitting
+    fit_results = curveFit(fit_func, X, Y)
+        
+    if fit_results:
+        # Extract the parameters from the fit results
+        popt = fit_results['parameters']
+       
+        if xrange is not None:
+            X = np.arange(xrange[0], xrange[1], (xrange[1] - xrange[0]) / 1000)
+
+        # Compute the fitted y values
+        fit_y = fit_func(X, *popt)
+
+        # Plot the fitted curve
+        ax.plot(X, fit_y, color=color, linestyle='-', label=label)  # Plot the fit curve
+        ax.legend()
+
+        return fit_results
