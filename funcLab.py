@@ -4,6 +4,7 @@ from google.auth import default  # Import default for Google authentication hand
 import matplotlib.pyplot as plt  # Import matplotlib for creating plots
 import sympy as sym  # Import SymPy for symbolic mathematical calculations
 from scipy.optimize import curve_fit  # Import curve_fit for fitting curves to data
+import math
 
 # Authenticate the user and set up access to Google Sheets API
 from google.colab import auth
@@ -472,3 +473,203 @@ def plotFit(ax, x, y, fit_func, label='Curve Fit', color='k', xrange=None):
         ax.legend()
 
         return fit_results
+
+class Table:
+    def __init__(self):
+        self.data = []
+        self.history = []
+        self.redo_stack = []
+
+    def save_state(self):
+        """Save the current state of the table for undo."""
+        self.history.append([row[:] for row in self.data])
+        self.redo_stack = []  # Clear redo stack on new change
+
+    def undo(self):
+        """Undo the last action."""
+        if not self.history:
+            print("No actions to undo.")
+            return
+        self.redo_stack.append([row[:] for row in self.data])
+        self.data = self.history.pop()
+
+    def redo(self):
+        """Redo the last undone action."""
+        if not self.redo_stack:
+            print("No actions to redo.")
+            return
+        self.history.append([row[:] for row in self.data])
+        self.data = self.redo_stack.pop()
+
+    def print_data(self):
+        """Print the current table."""
+        if not self.data:
+            print("Table is empty.")
+            return
+        for i in self.data:
+            print(i)
+
+    def add_row(self, row_values, index=None):
+        """Add a row at the specified index (default: at the end)."""
+        self.save_state()  
+        if index is None:
+            index = len(self.data)  # Insert at the end if no index is given
+        if index < 0 or index > len(self.data):
+            print("Error: Index out of bounds.")
+            return
+        if self.data and len(row_values) != len(self.data[0]):
+            print("Error: Row length does not match the number of columns.")
+            return
+        string_list = [str(element) for element in row_values]
+        self.data.insert(index, string_list)
+
+    def delete_row(self, index):
+        """Delete a row by index."""
+        self.save_state()  
+        if index < 0 or index >= len(self.data):
+            print("Error: Row index out of bounds.")
+            return
+        self.data.pop(index)
+
+    def add_column(self, col_values, index=None):
+        """Add a column at the specified index (default: at the end)."""
+        self.save_state()  
+        if not self.data:
+            print("Error: Table is empty, add rows first.")
+            return
+        if len(col_values) != len(self.data):
+            print("Error: Column length does not match the number of rows.")
+            return
+        if index is None:
+            index = len(self.data[0])  # Insert at the end if no index is given
+        for i in range(len(col_values)):
+            self.data[i].insert(index, str(col_values[i]))
+
+    def delete_column(self, index):
+        """Delete a column by index."""
+        self.save_state()  
+        if not self.data:
+            print("Error: Table is empty.")
+            return
+        if index < 0 or index >= len(self.data[0]):
+            print("Error: Column index out of bounds.")
+            return
+        for i in range(len(self.data)):
+            self.data[i].pop(index)
+
+    def change_value(self, row, col, new_value):
+        """Change a specific value in the table."""
+        self.save_state()  
+        if row < 0 or row >= len(self.data):
+            print("Error: Row index out of bounds.")
+            return
+        if col < 0 or col >= len(self.data[0]):
+            print("Error: Column index out of bounds.")
+            return
+        self.data[row][col] = str(new_value)
+
+    def add_uncertainties(self, uncertainties, axis='column', index=0):
+        """
+        Add uncertainties (± values) to either a specific row or column.
+        :param uncertainties: A list of uncertainties to add.
+        :param axis: 'column' or 'row' to specify where uncertainties should be added.
+        :param index: The index of the row/column where uncertainties will be added.
+        """
+        self.save_state()  
+        if axis == 'column':
+            if len(uncertainties) != len(self.data):
+                print("Error: Uncertainty length must match the number of rows.")
+                return
+            for i in range(len(self.data)):
+                self.data[i][index] += f' $\\pm$ {uncertainties[i]}'
+        elif axis == 'row':
+            if len(uncertainties) != len(self.data[0]):
+                print("Error: Uncertainty length must match the number of columns.")
+                return
+            for i in range(len(self.data[index])):
+                self.data[index][i] += f' $\\pm$ {uncertainties[i]}'
+        else:
+            print("Error: axis must be 'column' or 'row'.")
+
+    def import_from_range(self, fileName, sheetName, cellRange):
+        """Import data from a given range."""
+        self.save_state()  
+        try:
+             # Verify if the Google Sheets API client is set up
+            if 'gc' not in globals():
+                print("Google Sheets API client is not set up. Please run the authentication code.")
+                return
+            try:
+                # Access the Google Sheet and retrieve data
+                ss = gc.open(fileName)
+                ws = ss.worksheet(sheetName)
+                data = ws.get(cellRange)
+            except Exception as e:
+                print(f"Error retrieving range {cellRange}: {e}")
+                return None
+
+            # Handle the case for a single cell
+            if len(data) == 1 and len(data[0]) == 1:
+                data_value = data[0][0]
+                return data_value
+
+            # Handle the case for a single row
+            if len(data) == 1:
+                return [cell for cell in data[0]]  # Return the single row as a flat list with conversion
+
+            # Handle the case for a single column
+            if all(len(row) == 1 for row in data):
+                return [row[0] for row in data]  # Return the single column as a flat list with conversion
+
+            data = [[str(cell) for cell in row] for row in data]
+
+            self.data = data
+
+        except Exception as e:
+            print(f"Error importing data: {e}")
+    
+    def transpose(self):
+        """Transpose the table, converting rows to columns and vice versa."""
+        self.save_state()  
+        if not self.data:
+            print("Error: Table is empty.")
+            return
+        self.data = list(map(list, zip(*self.data)))
+
+
+    def latex_table(self, caption='', label='', hlines="all", vlines="none"):
+        """Generate LaTeX code for the table."""
+        if not self.data:
+            print("Error: Table is empty.")
+            return
+        
+        #handle vertical lines
+        if vlines == "all":
+            cs = '|c' * (len(self.data[0])-1) + '|c|'  
+        elif vlines == "none":
+            cs = 'c' * len(self.data[0])  
+        else:
+            cs = ''
+            for i in range(len(self.data[0])):
+                if vlines[i] == '1':
+                    cs += '|c'
+                elif vlines[i] == '0':
+                    cs += 'c'
+            if vlines[len(self.data[0])] == '1':
+                cs += '|'
+
+        print('\\begin{table}[h!]')
+        print('    \\centering')
+        print(f'    \\caption{{{caption}}}')
+        print(f'    \\label{{tab:{label}}}')
+        print(f'    \\begin{{tabular}}{{{cs}}}')
+        if hlines == "all": print('\\hline')
+        elif hlines[0] == '1': print('\\hline')
+
+        for row in self.data:
+            if hlines == "all": print('        ' + ' & '.join(row) + ' \\\\ \\hline')
+            elif hlines == "none": print('        ' + ' & '.join(row) + ' \\\\')
+            elif hlines[self.data.index(row) + 1] == '1': print('        ' + ' & '.join(row) + ' \\\\ \\hline')
+            else: print('        ' + ' & '.join(row) + ' \\\\')
+        print('    \\end{tabular}')
+        print('\\end{table}')
