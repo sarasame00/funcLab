@@ -16,7 +16,7 @@ gc = gspread.authorize(creds)  # Authorize the gspread client with the obtained 
 sym.init_printing()
 
 
-def importData(fileName, sheetName, cellRange, orientation='columns', data_type='numeric'):
+def import_data(file_name, sheet_name, cell_range, orientation='columns', data_type='numeric'):
     """
     Import data from a specified range in a Google Sheet using Excel-style range notation.
 
@@ -47,11 +47,11 @@ def importData(fileName, sheetName, cellRange, orientation='columns', data_type=
 
     try:
         # Access the Google Sheet and retrieve data
-        ss = gc.open(fileName)
-        ws = ss.worksheet(sheetName)
-        data = ws.get(cellRange)
+        ss = gc.open(file_name)
+        ws = ss.worksheet(sheet_name)
+        data = ws.get(cell_range)
     except Exception as e:
-        print(f"Error retrieving range {cellRange}: {e}")
+        print(f"Error retrieving range {cell_range}: {e}")
         return None
 
     # Function to convert data based on the specified type
@@ -108,7 +108,7 @@ def safe_eval(value):
     except ValueError:
         return float('nan')  # Return NaN for non-numeric values
 
-def curveFit(func, x, y):
+def fit_curve(func, x, y):
     """
     Fit a curve to the provided data using the given function and calculate the fitting statistics.
 
@@ -214,7 +214,7 @@ def regression(x, y, table=False):
     def func(x, A, B):
         return A * x + B  # Linear function for fitting
 
-    curve = curveFit(func, x, y)  # Fit the curve using a linear function
+    curve = fit_curve(func, x, y)  # Fit the curve using a linear function
     
     # Create Variable objects for slope and intercept
     A = Variable('A', curve['parameters'][0], curve['parameter_uncertainties'][0])
@@ -241,7 +241,7 @@ def regression(x, y, table=False):
 
     return results
 
-def propUncertainty(fun, variables):
+def prop_uncertainty(fun, variables):
     """
     Propagate uncertainties through a symbolic function using partial derivatives.
 
@@ -297,8 +297,8 @@ def propUncertainty(fun, variables):
 
         return evaluated_fun, evaluated_errfun
 
-    valors = []
-    incerteses = []
+    values = []
+    uncertainties = []
 
     for var in variables:
         # Ensure the lengths of values and uncertainties match
@@ -309,24 +309,24 @@ def propUncertainty(fun, variables):
                 
                 for value, uncertainty in zip(var.val, var.inc):
                     evaluated_fun, evaluated_errfun = substitute_values_and_uncertainties(value, uncertainty)
-                    valors.append(evaluated_fun.evalf())  # Evaluate the function value
-                    incerteses.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
+                    values.append(evaluated_fun.evalf())  # Evaluate the function value
+                    uncertainties.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
             else:
                 for value in var.val:
                     evaluated_fun, evaluated_errfun = substitute_values_and_uncertainties(value, var.inc)
-                    valors.append(evaluated_fun.evalf())  # Evaluate the function value
-                    incerteses.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
+                    values.append(evaluated_fun.evalf())  # Evaluate the function value
+                    uncertainties.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
         else:
             if isinstance(var.inc, (list, np.ndarray)):
                 for uncertainty in var.inc:
                     evaluated_errfun = errfun.subs(sym.Symbol('sigma_' + var.sim.name), uncertainty)
-                    incerteses.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
+                    uncertainties.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
             else:
                 evaluated_fun, evaluated_errfun = substitute_values_and_uncertainties(var.val, var.inc)
-                valors.append(evaluated_fun.evalf())  # Evaluate the function value
-                incerteses.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
+                values.append(evaluated_fun.evalf())  # Evaluate the function value
+                uncertainties.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
 
-    return valors, incerteses
+    return values, uncertainties
 
 
 def mean(values, instrumental_error):
@@ -365,7 +365,7 @@ def mean(values, instrumental_error):
     return mean, combined_uncertainty
 
 
-def plotData(ax, x, y, label=None, color='k', marker='o', markersize=3):
+def plot_data(ax, x, y, label=None, color='k', marker='o', marker_size=3):
     """
     Plot data with error bars on the specified axis.
 
@@ -404,7 +404,7 @@ def plotData(ax, x, y, label=None, color='k', marker='o', markersize=3):
         'elinewidth': 0.5,  # Line width for error bars
         'linewidth': 0,  # No line width for data points
         'marker': marker,  # Marker style
-        'markersize': markersize,  # Size of the markers
+        'markersize': marker_size,  # Size of the markers
         'markerfacecolor': color,  # Fill color of markers
         'markeredgecolor': color,  # Edge color of markers
         'ecolor': color  # Color of the error bars
@@ -419,7 +419,7 @@ def plotData(ax, x, y, label=None, color='k', marker='o', markersize=3):
         ax.legend()  # Display legend if a label was provided
 
 
-def plotFit(ax, x, y, fit_func, label='Curve Fit', color='k', xrange=None):
+def plot_fit(ax, x, y, fit_func, label='Curve Fit', color='k', x_range=None):
     """
     Plot data with error bars on the given axis and optionally fit a curve to the data.
 
@@ -456,14 +456,14 @@ def plotFit(ax, x, y, fit_func, label='Curve Fit', color='k', xrange=None):
     Y = np.asarray(y.val)
         
     # Perform curve fitting
-    fit_results = curveFit(fit_func, X, Y)
+    fit_results = fit_curve(fit_func, X, Y)
         
     if fit_results:
         # Extract the parameters from the fit results
         popt = fit_results['parameters']
        
-        if xrange is not None:
-            X = np.arange(xrange[0], xrange[1], (xrange[1] - xrange[0]) / 1000)
+        if x_range is not None:
+            X = np.arange(x_range[0], x_range[1], (x_range[1] - x_range[0]) / 1000)
 
         # Compute the fitted y values
         fit_y = fit_func(X, *popt)
