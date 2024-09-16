@@ -512,16 +512,22 @@ class Table:
     def add_row(self, row_values, index=None):
         """Add a row at the specified index (default: at the end)."""
         self.save_state()  
+        if not self.data:  # If the table is empty, directly add the first row
+            self.data.append([str(element) for element in row_values])
+            return
+        
         if index is None:
             index = len(self.data)  # Insert at the end if no index is given
         if index < 0 or index > len(self.data):
             print("Error: Index out of bounds.")
             return
-        if self.data and len(row_values) != len(self.data[0]):
+        if len(row_values) != len(self.data[0]):
             print("Error: Row length does not match the number of columns.")
             return
+        
         string_list = [str(element) for element in row_values]
         self.data.insert(index, string_list)
+
 
     def delete_row(self, index):
         """Delete a row by index."""
@@ -634,20 +640,40 @@ class Table:
         if not self.data:
             print("Error: Table is empty.")
             return
+        if any(len(row) != len(self.data[0]) for row in self.data):
+            print("Error: Cannot transpose a malformed table with inconsistent row lengths.")
+            return
+        
         self.data = list(map(list, zip(*self.data)))
 
 
+
     def latex_table(self, caption='', label='', hlines="all", vlines="none"):
-        """Generate LaTeX code for the table."""
-        if not self.data:
-            print("Error: Table is empty.")
-            return
+        """Generate LaTeX code for the table with error handling and validation."""
         
-        #handle vertical lines
+        # Check if the table is empty
+        if not self.data:
+            raise ValueError("Error: Table is empty. Cannot generate LaTeX code for an empty table.")
+        
+        # Validate horizontal lines (hlines)
+        if hlines != "all" and hlines != "none":
+            if len(hlines) != len(self.data) + 1:
+                raise ValueError(f"Error: hlines must have {len(self.data) + 1} entries (one for each row and one for the last line).")
+            if any(h not in ['0', '1'] for h in hlines):
+                raise ValueError("Error: hlines must be 'all', 'none', or a list of '0' and '1' strings.")
+
+        # Validate vertical lines (vlines)
+        if vlines != "all" and vlines != "none":
+            if len(vlines) != len(self.data[0]) + 1:
+                raise ValueError(f"Error: vlines must have {len(self.data[0]) + 1} entries (one for each column and one for the last line).")
+            if any(v not in ['0', '1'] for v in vlines):
+                raise ValueError("Error: vlines must be 'all', 'none', or a list of '0' and '1' strings.")
+
+        # Handle vertical lines
         if vlines == "all":
-            cs = '|c' * (len(self.data[0])-1) + '|c|'  
+            cs = '|c' * (len(self.data[0]) - 1) + '|c|'  # Vertical lines between all columns
         elif vlines == "none":
-            cs = 'c' * len(self.data[0])  
+            cs = 'c' * len(self.data[0])  # No vertical lines
         else:
             cs = ''
             for i in range(len(self.data[0])):
@@ -658,18 +684,31 @@ class Table:
             if vlines[len(self.data[0])] == '1':
                 cs += '|'
 
+        # Start building the LaTeX code
         print('\\begin{table}[h!]')
         print('    \\centering')
         print(f'    \\caption{{{caption}}}')
         print(f'    \\label{{tab:{label}}}')
         print(f'    \\begin{{tabular}}{{{cs}}}')
-        if hlines == "all": print('\\hline')
-        elif hlines[0] == '1': print('\\hline')
 
-        for row in self.data:
-            if hlines == "all": print('        ' + ' & '.join(row) + ' \\\\ \\hline')
-            elif hlines == "none": print('        ' + ' & '.join(row) + ' \\\\')
-            elif hlines[self.data.index(row) + 1] == '1': print('        ' + ' & '.join(row) + ' \\\\ \\hline')
-            else: print('        ' + ' & '.join(row) + ' \\\\')
+        # Handle horizontal lines
+        if hlines == "all": 
+            print('\\hline')
+        elif hlines == "none": 
+            pass  # Do nothing for 'none'
+        elif hlines[0] == '1':
+            print('\\hline')
+
+        # Print the table content
+        for idx, row in enumerate(self.data):
+            if hlines == "all":
+                print('        ' + ' & '.join(row) + ' \\\\ \\hline')
+            elif hlines == "none":
+                print('        ' + ' & '.join(row) + ' \\\\')
+            elif hlines[idx + 1] == '1':  # Check if there's a horizontal line after the row
+                print('        ' + ' & '.join(row) + ' \\\\ \\hline')
+            else:
+                print('        ' + ' & '.join(row) + ' \\\\')
+
         print('    \\end{tabular}')
         print('\\end{table}')
