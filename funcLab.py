@@ -241,6 +241,27 @@ def regression(x, y, table=False):
 
     return results
 
+import sympy as sp
+import numpy as np
+
+class Variable:
+    def __init__(self, sim, val, inc):
+        """
+        Create a variable with symbolic representation, value, and uncertainty.
+
+        Parameters:
+        -----------
+        sim : str
+            The symbolic name of the variable.
+        val : float, list, or array
+            The value of the variable.
+        inc : float, list, or array
+            The uncertainty associated with the variable.
+        """
+        self.sim = sp.Symbol(sim)  # Create a symbolic variable
+        self.val = val  # The variable's value (could be scalar or list)
+        self.inc = inc  # The variable's uncertainty (could be scalar or list)
+
 def prop_uncertainty(fun, variables):
     """
     Propagate uncertainties through a symbolic function using partial derivatives.
@@ -266,19 +287,26 @@ def prop_uncertainty(fun, variables):
     # Initialize symbolic expression for uncertainty propagation
     errfun = 0
     for var in variables:
-        sigma_s = sym.Symbol('sigma_' + var.sim.name)  # Symbol for the uncertainty of the variable
-        derivative = sym.diff(fun, var.sim)  # Compute the partial derivative of the function with respect to the variable
+        sigma_s = sp.Symbol('sigma_' + var.sim.name)  # Symbol for the uncertainty of the variable
+        derivative = sp.diff(fun, var.sim)  # Compute the partial derivative of the function with respect to the variable
         errfun += (derivative * sigma_s) ** 2  # Sum the squared term to the total uncertainty expression
 
-    errfun = sym.sqrt(errfun)  # Take the square root to get the combined uncertainty expression
+    errfun = sp.sqrt(errfun)  # Take the square root to get the combined uncertainty expression
 
     # Display the symbolic uncertainty expression in LaTeX format
     print("Symbolic uncertainty expression:")
-    print(sym.latex(errfun))
+    print(sp.latex(errfun))
 
-    def substitute_values_and_uncertainties(val, inc):
+    def substitute_values_and_uncertainties(vals, incs):
         """
         Substitute values and uncertainties into the symbolic expressions and evaluate them.
+
+        Parameters:
+        -----------
+        vals : list
+            List of values corresponding to each variable.
+        incs : list
+            List of uncertainties corresponding to each variable.
 
         Returns:
         --------
@@ -288,45 +316,50 @@ def prop_uncertainty(fun, variables):
         evaluated_fun = fun
         evaluated_errfun = errfun
 
-        for var in variables:
-            evaluated_fun = evaluated_fun.subs(var.sim, val)
-            evaluated_errfun = evaluated_errfun.subs(var.sim, val)
-            
+        for i, var in enumerate(variables):
+            evaluated_fun = evaluated_fun.subs(var.sim, vals[i])
+            evaluated_errfun = evaluated_errfun.subs(var.sim, vals[i])
             # Substitute the uncertainty into the uncertainty expression
-            evaluated_errfun = evaluated_errfun.subs(sym.Symbol('sigma_' + var.sim.name), inc)
+            evaluated_errfun = evaluated_errfun.subs(sp.Symbol('sigma_' + var.sim.name), incs[i])
 
-        return evaluated_fun, evaluated_errfun
+        return evaluated_fun.evalf(), evaluated_errfun.evalf()
 
+    # Initialize lists to store results
     values = []
     uncertainties = []
 
-    for var in variables:
-        # Ensure the lengths of values and uncertainties match
-        if isinstance(var.val, (list, np.ndarray)):
-            if isinstance(var.inc, (list, np.ndarray)):
-                if len(var.val) != len(var.inc):
-                    raise ValueError("Values and uncertainties lists/arrays must have the same length.")
-                
-                for value, uncertainty in zip(var.val, var.inc):
-                    evaluated_fun, evaluated_errfun = substitute_values_and_uncertainties(value, uncertainty)
-                    values.append(evaluated_fun.evalf())  # Evaluate the function value
-                    uncertainties.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
-            else:
-                for value in var.val:
-                    evaluated_fun, evaluated_errfun = substitute_values_and_uncertainties(value, var.inc)
-                    values.append(evaluated_fun.evalf())  # Evaluate the function value
-                    uncertainties.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
-        else:
-            if isinstance(var.inc, (list, np.ndarray)):
-                for uncertainty in var.inc:
-                    evaluated_errfun = errfun.subs(sym.Symbol('sigma_' + var.sim.name), uncertainty)
-                    uncertainties.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
-            else:
-                evaluated_fun, evaluated_errfun = substitute_values_and_uncertainties(var.val, var.inc)
-                values.append(evaluated_fun.evalf())  # Evaluate the function value
-                uncertainties.append(evaluated_errfun.evalf())  # Evaluate the uncertainty
+    # Determine the maximum number of evaluations needed
+    max_len = max(
+        len(var.val) if isinstance(var.val, (list, np.ndarray)) else 1 for var in variables
+    )
 
-    return values, uncertainties
+    # Process each variable's value and uncertainty
+    for i in range(max_len):
+        vals = []
+        incs = []
+
+        for var in variables:
+            # Handle single value vs. list of values
+            if isinstance(var.val, (list, np.ndarray)):
+                vals.append(var.val[i])  # Get the i-th value
+            else:
+                vals.append(var.val)  # Single value
+
+            # Handle single uncertainty vs. list of uncertainties
+            if isinstance(var.inc, (list, np.ndarray)):
+                incs.append(var.inc[i])  # Get the i-th uncertainty
+            else:
+                incs.append(var.inc)  # Single uncertainty
+
+        # Substitute values and uncertainties into the symbolic function and uncertainty
+        evaluated_fun, evaluated_errfun = substitute_values_and_uncertainties(vals, incs)
+
+        values.append(evaluated_fun)
+        uncertainties.append(evaluated_errfun)
+
+    # Return the evaluated values and uncertainties
+    return values if len(values) > 1 else values[0], uncertainties if len(uncertainties) > 1 else uncertainties[0]
+
 
 
 def mean(values, instrumental_error):
