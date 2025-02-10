@@ -1,0 +1,1 @@
+This repository provides a set of functions and classes for data analysis, curve fitting, and symbolic mathematics. It includes utilities for importing data from Google Sheets, performing curve fitting, linear regression, uncertainty propagation, and plotting data with error bars.
